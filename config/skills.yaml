@@ -1,0 +1,76 @@
+# 技能配置模板
+
+skills:
+  monitoring:
+    skill_name: "monitoring"
+    description: "云监控指标查询与 SLS 日志分析"
+    version: "1.0.0"
+    capabilities:
+      - "cloud_monitor_query"
+      - "sls_log_query"
+      - "metric_analysis"
+    required_permissions:
+      - "cms:QueryMetricData"
+      - "sls:GetLogs"
+    enabled: true
+
+  troubleshooting:
+    skill_name: "troubleshooting"
+    description: "ECS 健康检查、网络诊断、RDS 慢查询分析"
+    version: "1.0.0"
+    capabilities:
+      - "ecs_health_check"
+      - "network_diagnosis"
+      - "rds_slow_query_analysis"
+    required_permissions:
+      - "ecs:DescribeInstances"
+      - "vpc:DescribeVpcs"
+      - "rds:DescribeSlowLogs"
+    enabled: true
+
+  change_management:
+    skill_name: "change_management"
+    description: "变更风险评估与回滚方案推荐"
+    version: "1.0.0"
+    capabilities:
+      - "change_risk_assessment"
+      - "rollback_recommendation"
+    required_permissions:
+      - "ecs:DescribeInstances"
+      - "ecs:ModifyInstanceAttribute"
+    enabled: true
+
+  capacity_planning:
+    skill_name: "capacity_planning"
+    description: "资源容量规划与扩缩容建议"
+    version: "1.0.0"
+    capabilities:
+      - "capacity_analysis"
+      - "scaling_recommendation"
+    required_permissions:
+      - "cms:QueryMetricData"
+      - "ess:DescribeScalingGroups"
+    enabled: true
+
+  incident_response:
+    skill_name: "incident_response"
+    description: "事件响应与告警处理"
+    version: "1.0.0"
+    capabilities:
+      - "incident_triage"
+      - "alert_handling"
+      - "escalation"
+    required_permissions:
+      - "cms:DescribeAlarms"
+      - "arms:GetAlertRules"
+    enabled: true
+
+  knowledge_base:
+    skill_name: "knowledge_base"
+    description: "运维知识库查询与故障案例检索"
+    version: "1.0.0"
+    capabilities:
+      - "knowledge_search"
+      - "fault_case_retrieval"
+    required_permissions: []
+    enabled: true
