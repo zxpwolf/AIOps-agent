@@ -1,0 +1,24 @@
+# AIOps Agent 本地开发环境
+version: "3.8"
+
+services:
+  aiops-agent:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - AGENT_IDENTITY_ENDPOINT=${AGENT_IDENTITY_ENDPOINT:-https://agent-identity.cn-hangzhou.aliyuncs.com}
+      - AGENT_IDENTITY_REGION=${AGENT_IDENTITY_REGION:-cn-hangzhou}
+      - WORKLOAD_IDENTITY_ARN=${WORKLOAD_IDENTITY_ARN:-}
+      - QWEN_API_KEY=${QWEN_API_KEY:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ../config:/app/config:ro
+      - agent-logs:/app/logs
+      - agent-data:/app/data
+
+volumes:
+  agent-logs:
+  agent-data:
