@@ -1,0 +1,69 @@
+# 安全规则配置
+
+# 敏感字段名称模式（用于脱敏）
+sensitive_field_patterns:
+  - "password"
+  - "passwd"
+  - "secret"
+  - "token"
+  - "access_key"
+  - "accesskey"
+  - "access_key_id"
+  - "access_key_secret"
+  - "security_token"
+  - "api_key"
+  - "apikey"
+  - "private_key"
+  - "credential"
+  - "authorization"
+
+# 高危操作黑名单
+blacklist:
+  - action: "ecs:DeleteInstance"
+    description: "删除 ECS 实例"
+    suggestion: "请通过控制台手动操作，并确认已备份数据"
+  - action: "rds:DeleteDBInstance"
+    description: "删除 RDS 实例"
+    suggestion: "请通过控制台手动操作，并确认已创建最终备份"
+  - action: "vpc:DeleteVpc"
+    description: "删除 VPC"
+    suggestion: "请确认 VPC 内无运行中的资源后，通过控制台手动操作"
+  - action: "ram:DeleteUser"
+    description: "删除 RAM 用户"
+    suggestion: "请通过 RAM 控制台手动操作"
+  - action: "ram:UpdateLoginProfile"
+    description: "修改根账号登录配置"
+    suggestion: "此操作仅允许通过控制台由管理员执行"
+  - action: "actiontrail:StopLogging"
+    description: "关闭操作审计"
+    suggestion: "禁止关闭审计日志，如需调整请联系安全管理员"
+  - action: "waf:DisableProtection"
+    description: "关闭 WAF 防护"
+    suggestion: "禁止关闭安全防护，如需调整请联系安全管理员"
+
+# API 调用频率限制
+rate_limits:
+  default:
+    max_calls_per_minute: 60
+    max_calls_per_hour: 1000
+  per_skill:
+    monitoring:
+      max_calls_per_minute: 120
+      max_calls_per_hour: 3000
+    troubleshooting:
+      max_calls_per_minute: 60
+      max_calls_per_hour: 1000
+    change_management:
+      max_calls_per_minute: 30
+      max_calls_per_hour: 500
+
+# 异常检测配置
+anomaly_detection:
+  enabled: true
+  baseline_window_hours: 24
+  deviation_threshold: 3.0  # 标准差倍数
+
+# 通信安全
+communication:
+  enforce_https: true
+  min_tls_version: "1.2"
