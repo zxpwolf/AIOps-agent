@@ -1,0 +1,40 @@
+# MCP Server 配置模板
+
+servers:
+  # 阿里云 CloudMonitor MCP Server
+  cloud_monitor:
+    server_name: "cloud_monitor"
+    transport: "stdio"
+    command: "python"
+    args: ["-m", "mcp_servers.cloud_monitor"]
+    env:
+      REGION: "cn-hangzhou"
+    enabled: true
+
+  # 阿里云 SLS 日志服务 MCP Server
+  sls:
+    server_name: "sls"
+    transport: "stdio"
+    command: "python"
+    args: ["-m", "mcp_servers.sls"]
+    env:
+      REGION: "cn-hangzhou"
+    enabled: true
+
+  # 阿里云 ECS/VPC/RDS MCP Server
+  ecs_vpc_rds:
+    server_name: "ecs_vpc_rds"
+    transport: "stdio"
+    command: "python"
+    args: ["-m", "mcp_servers.ecs_vpc_rds"]
+    env:
+      REGION: "cn-hangzhou"
+    enabled: true
+
+  # 远程 MCP Server 示例（SSE 传输）
+  # remote_example:
+  #   server_name: "remote_example"
+  #   transport: "sse"
+  #   url: "https://mcp.example.com/sse"
+  #   env: {}
+  #   enabled: false
