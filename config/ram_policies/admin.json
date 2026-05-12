@@ -1,0 +1,34 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:*",
+        "rds:*",
+        "vpc:*",
+        "slb:*",
+        "cms:*",
+        "sls:*",
+        "arms:*",
+        "ess:*",
+        "ram:GetRole",
+        "ram:ListRoles",
+        "ram:GetPolicy",
+        "ram:ListPolicies",
+        "sts:AssumeRole"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Deny",
+      "Action": [
+        "ram:DeleteUser",
+        "ram:UpdateLoginProfile",
+        "actiontrail:StopLogging",
+        "actiontrail:DeleteTrail"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
