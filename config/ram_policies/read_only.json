@@ -1,0 +1,29 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:Describe*",
+        "ecs:List*",
+        "rds:Describe*",
+        "rds:List*",
+        "vpc:Describe*",
+        "vpc:List*",
+        "slb:Describe*",
+        "slb:List*",
+        "cms:Describe*",
+        "cms:Query*",
+        "cms:List*",
+        "sls:GetLogs",
+        "sls:GetHistograms",
+        "sls:ListProject",
+        "sls:ListLogStores",
+        "arms:Get*",
+        "arms:List*",
+        "arms:Describe*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
