@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aiops-agent-config
+data:
+  agent_identity_endpoint: "https://agent-identity.cn-hangzhou.aliyuncs.com"
+  agent_identity_region: "cn-hangzhou"

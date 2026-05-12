@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIOps Agent</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+<style>
+:root{--bg:#0f1117;--sf:#1a1d27;--bd:#2a2d3a;--tx:#e4e4e7;--mt:#71717a;
+--pm:#6366f1;--ph:#818cf8;--ok:#22c55e;--er:#ef4444;--am:#f59e0b}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+background:var(--bg);color:var(--tx);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;justify-content:space-between;
+padding:12px 20px;border-bottom:1px solid var(--bd);background:var(--sf);flex-shrink:0}
+header h1{font-size:17px;font-weight:600;display:flex;align-items:center;gap:8px}
+.dot{width:8px;height:8px;background:var(--ok);border-radius:50%;flex-shrink:0}
+#status{font-size:12px;color:var(--mt)}
+.wrap{display:flex;flex:1;overflow:hidden}
+aside{width:240px;border-right:1px solid var(--bd);background:var(--sf);
+padding:16px;display:flex;flex-direction:column;gap:12px;flex-shrink:0}
+aside h3{font-size:13px;color:var(--mt);text-transform:uppercase;letter-spacing:.5px}
+.skill{padding:8px 10px;border-radius:6px;background:var(--bg);font-size:13px;cursor:default}
+.skill b{display:block;margin-bottom:2px;font-weight:500}
+.skill small{color:var(--mt);font-size:11px}
+.badge{display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;
+background:#22c55e22;color:var(--ok);margin-left:4px}
+main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+#mode-toggle{position:fixed;top:60px;right:20px;z-index:100;display:flex;gap:4px;
+padding:3px;border-radius:8px;background:var(--sf);border:1px solid var(--bd)}
+#mode-toggle button{padding:4px 10px;border:none;border-radius:6px;font-size:12px;
+cursor:pointer;background:transparent;color:var(--mt);transition:all .2s}
+#mode-toggle button.active{background:var(--pm);color:#fff}
+.task-step{padding:6px 10px;border-radius:6px;font-size:12px;margin-top:4px;
+border-left:3px solid var(--pm);background:var(--sf)}
+.task-step.done{border-left-color:var(--ok)}
+.task-step.error{border-left-color:var(--er)}
+.task-step.cancelled{border-left-color:var(--mt);opacity:.6}
+.progress-bar{height:3px;background:var(--bd);border-radius:2px;margin:4px 0;overflow:hidden}
+.progress-bar .fill{height:100%;background:var(--pm);border-radius:2px;transition:width .3s}
+</style>
+</head>
+<body>
+<header><h1><span class="dot"></span>AIOps Agent</h1>
+<nav style="display:flex;gap:4px;margin-left:24px"><a href="/" style="padding:6px 12px;border-radius:6px;font-size:13px;color:#e4e4e7;background:#6366f1;text-decoration:none">对话</a><a href="/skills" style="padding:6px 12px;border-radius:6px;font-size:13px;color:#a1a1aa;text-decoration:none">技能市场</a></nav>
+<span id="status" style="margin-left:auto">就绪</span></header>
+<div class="wrap">
+<aside id="sidebar"><h3>技能列表</h3></aside>
+<main id="main">
+<div id="messages" style="flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px"></div>
+<form id="form" style="padding:12px 20px;border-top:1px solid var(--bd);display:flex;gap:8px;flex-shrink:0">
+<input id="input" type="text" placeholder="输入运维请求，例如：查看 ECS 实例 i-bp1234567890 的 CPU 使用率"
+ style="flex:1;padding:10px 14px;border-radius:8px;border:1px solid var(--bd);background:var(--sf);color:var(--tx);font-size:14px;outline:none"
+ autocomplete="off">
+<button type="submit" style="padding:10px 20px;border-radius:8px;border:none;background:var(--pm);color:#fff;font-size:14px;cursor:pointer;font-weight:500">发送</button>
+</form>
+</main>
+</div>
+<script>
+const sid='s-'+Math.random().toString(36).slice(2)+Date.now().toString(36);
+const msgs=document.getElementById('messages'),inp=document.getElementById('input'),
+st=document.getElementById('status'),sb=document.getElementById('sidebar'),
+form=document.getElementById('form');
+
+function addMsg(role,text,html){
+  const d=document.createElement('div');
+  d.style.cssText=`max-width:80%;padding:10px 14px;border-radius:10px;font-size:14px;line-height:1.6;white-space:pre-wrap;word-break:break-word;${role==='user'?'align-self:flex-end;background:#1e293b':'align-self:flex-start;background:#172234;border:1px solid #2a2d3a'}`;
+  if(html){d.innerHTML=text}else{d.textContent=text}
+  msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d
+}
+
+function addTaskStep(el,text,type,progress){
+  const s=document.createElement('div');
+  s.className='task-step'+(type==='done'?' done':type==='error'?' error':type==='cancelled'?' cancelled':'');
+  let txt=text;
+  if(progress)txt+=` <span style="color:#71717a">(${progress})</span>`;
+  s.innerHTML=txt;el.appendChild(s);msgs.scrollTop=msgs.scrollHeight;return s
+}
+
+form.onsubmit=async e=>{
+  e.preventDefault();
+  const m=inp.value.trim();if(!m)return;
+  inp.value='';inp.disabled=true;form.querySelector('button').disabled=true;
+  addMsg('user',m);
+  st.textContent='思考中...';
+
+  const agentEl=addMsg('agent','⏳ 正在分析任务...');
+
+  try{
+    const resp=await fetch('/api/chat/stream',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({message:m,session_id:sid})
+    });
+
+    const reader=resp.body.getReader();
+    const decoder=new TextDecoder();
+    let buffer='';
+
+    while(true){
+      const{done,value}=await reader.read();
+      if(done)break;
+
+      buffer+=decoder.decode(value,{stream:true});
+      const lines=buffer.split('\n');
+      buffer=lines.pop()||'';
+
+      for(const line of lines){
+        if(line.startsWith('event:')){
+          const eventType=line.slice(6).trim();
+          const dataLine=lines[lines.indexOf(line)+1];
+          if(dataLine&&dataLine.startsWith('data:')){
+            const data=JSON.parse(dataLine.slice(5));
+            handleEvent(data,eventType,agentEl);
+          }
+        }
+      }
+    }
+  }catch(err){
+    agentEl.textContent='❌ 请求失败: '+err.message;
+  }finally{
+    inp.disabled=false;form.querySelector('button').disabled=false;
+    st.textContent='就绪';
+  }
+};
+
+function handleEvent(data,type,el){
+  switch(type){
+    case 'planning':
+      if(data.status==='started'){
+        el.textContent='📋 '+data.message;
+      }else if(data.status==='completed'){
+        el.textContent='📋 '+data.message;
+        if(data.tasks){
+          data.tasks.forEach(t=>addTaskStep(el,'🔹 '+t.skill_name+' → '+t.action,'start'));
+        }
+      }
+      break;
+    case 'task_start':
+      addTaskStep(el,`▶️ ${data.skill_name} · ${data.action} <span style="color:#71717a">[层级 ${data.level}]</span>`,'running');
+      break;
+    case 'task_done':
+      if(data.status==='completed'){
+        addTaskStep(el,`✅ ${data.skill_name} · ${data.action}`,'done',data.progress);
+      }else if(data.status==='cancelled'){
+        addTaskStep(el,`⏸️ ${data.skill_name} · ${data.action} — ${data.error}`,'cancelled');
+      }else{
+        addTaskStep(el,`❌ ${data.skill_name} · ${data.action} — ${data.error}`,'error');
+      }
+      break;
+    case 'done':
+      let txt='\n\n━━━━━━━━━━━━━━━━━━━━\n';
+      txt+=(data.success?'✅ 全部完成':'⚠️ 部分失败')+' · '+data.message;
+      txt+=' · '+data.elapsed_ms+'ms';
+      if(data.trace_id)txt+='\n🔗 trace: '+data.trace_id.slice(0,12)+'...';
+      el.innerHTML=el.innerHTML+txt;
+      break;
+    case 'error':
+      el.textContent='❌ '+data.message+(data.suggestion?' 💡 '+data.suggestion:'');
+      break;
+  }
+}
+
+fetch('/api/skills').then(r=>r.json()).then(d=>{(d.skills||[]).forEach(s=>{
+  const el=document.createElement('div');el.className='skill';
+  el.innerHTML=`<b>${s.name}<span class="badge">${s.status}</span></b><small>${s.description}</small>`;
+  sb.appendChild(el)})}).catch(()=>{});
+
+addMsg('agent','👋 你好！我是 AIOps Agent，你的智能运维助手。\n\n我可以帮你：\n• 查询云监控指标和日志\n• 排查 ECS/RDS/网络故障\n• 评估变更风险和推荐回滚方案\n\n请输入你的运维需求。');
+</script>
+</body>
+</html>

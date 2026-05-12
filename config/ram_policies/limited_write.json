@@ -1,0 +1,37 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:Describe*",
+        "ecs:List*",
+        "ecs:StartInstance",
+        "ecs:StopInstance",
+        "ecs:RebootInstance",
+        "ecs:ModifyInstanceAttribute",
+        "rds:Describe*",
+        "rds:List*",
+        "rds:RestartDBInstance",
+        "rds:ModifyDBInstanceSpec",
+        "vpc:Describe*",
+        "vpc:List*",
+        "slb:Describe*",
+        "slb:List*",
+        "slb:SetBackendServers",
+        "cms:Describe*",
+        "cms:Query*",
+        "cms:List*",
+        "cms:EnableAlarm",
+        "cms:DisableAlarm",
+        "sls:GetLogs",
+        "sls:GetHistograms",
+        "sls:ListProject",
+        "sls:ListLogStores",
+        "ess:ExecuteScalingRule",
+        "ess:Describe*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

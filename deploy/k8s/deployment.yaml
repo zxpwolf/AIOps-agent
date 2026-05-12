@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-agent
+  labels:
+    app: aiops-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiops-agent
+  template:
+    metadata:
+      labels:
+        app: aiops-agent
+    spec:
+      serviceAccountName: aiops-agent
+      containers:
+        - name: aiops-agent
+          image: registry.cn-hangzhou.aliyuncs.com/aiops/agent:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: AGENT_IDENTITY_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: aiops-agent-config
+                  key: agent_identity_endpoint
+            - name: AGENT_IDENTITY_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: aiops-agent-config
+                  key: agent_identity_region
+            - name: WORKLOAD_IDENTITY_ARN
+              valueFrom:
+                secretKeyRef:
+                  name: aiops-agent-secrets
+                  key: workload_identity_arn
+            - name: LOG_LEVEL
+              value: "INFO"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: aiops-agent-config
