@@ -102,16 +102,25 @@ form.onsubmit=async e=>{
       if(done)break;
 
       buffer+=decoder.decode(value,{stream:true});
-      const lines=buffer.split('\n');
-      buffer=lines.pop()||'';
 
-      for(const line of lines){
-        if(line.startsWith('event:')){
-          const eventType=line.slice(6).trim();
-          const dataLine=lines[lines.indexOf(line)+1];
-          if(dataLine&&dataLine.startsWith('data:')){
-            const data=JSON.parse(dataLine.slice(5));
-            handleEvent(data,eventType,agentEl);
+      // 按 SSE 规范：\n\n 是事件分隔符
+      const parts=buffer.split('\n\n');
+      buffer=parts.pop()||'';  // 保留未完成的片段
+
+      for(const part of parts){
+        if(!part.trim())continue;
+        const lines=part.split('\n');
+        let eventType='message';
+        let dataStr='';
+        for(const line of lines){
+          if(line.startsWith('event:')) eventType=line.slice(6).trim();
+          else if(line.startsWith('data:')) dataStr+=line.slice(5);
+        }
+        if(dataStr){
+          try{
+            handleEvent(JSON.parse(dataStr),eventType,agentEl);
+          }catch(e){
+            console.warn('SSE JSON 解析失败:',e,'原始数据:',dataStr);
           }
         }
       }
