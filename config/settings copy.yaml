@@ -1,0 +1,94 @@
+# AIOps Agent 主配置文件
+
+# LLM 提供商配置
+llm:
+  primary_provider: "qwen"
+  fallback_provider: "claude"
+  providers:
+    qwen:
+      model: "qwen3.6-plus"
+      # API Key 可在此配置，也可通过环境变量 QWEN_API_KEY 设置（环境变量优先级更高）
+      api_key: "sk-sp-0e4ee7d277624ece8e0da285551becc3"
+      api_base: "https://coding.dashscope.aliyuncs.com/v1"
+      max_tokens: 9192
+      temperature: 0.7
+      timeout_seconds: 120
+    claude:
+      model: "claude-3-sonnet"
+      # API Key 可在此配置，也可通过环境变量 CLAUDE_API_KEY 设置（环境变量优先级更高）
+      api_key: ""
+      api_base: "https://api.anthropic.com/v1"
+      max_tokens: 4096
+      temperature: 0.7
+      timeout_seconds: 60
+    gpt:
+      model: "gpt-4"
+      # API Key 可在此配置，也可通过环境变量 OPENAI_API_KEY 设置（环境变量优先级更高）
+      api_key: ""
+      api_base: "https://api.openai.com/v1"
+      max_tokens: 4096
+      temperature: 0.7
+      timeout_seconds: 60
+
+# Agent Identity 配置 — 阿里云 RAM OIDC 工作负载身份
+# 通过 STS AssumeRoleWithOIDC 获取临时凭证
+agent_identity:
+  # RAM 角色 ARN（格式: acs:ram::<AccountID>:role/<RoleName>）
+  # 也可通过环境变量 ALIBABA_CLOUD_ROLE_ARN 设置
+  role_arn: ""
+  # OIDC 身份提供商 ARN（格式: acs:ram::<AccountID>:oidc-provider/<ProviderName>）
+  # 也可通过环境变量 ALIBABA_CLOUD_OIDC_PROVIDER_ARN 设置
+  oidc_provider_arn: ""
+  # STS 会话名称
+  session_name: "aiops-agent"
+  # 区域
+  region: "cn-hangzhou"
+  # Token 过期前多少分钟自动刷新
+  token_refresh_before_minutes: 5
+
+# 超时配置
+timeouts:
+  tool_execution_seconds: 120
+  skill_execution_seconds: 300
+  session_idle_minutes: 30
+
+# 重试策略
+retry:
+  max_retries: 3
+  base_delay_seconds: 1.0
+  max_delay_seconds: 30.0
+  exponential_base: 2
+
+# 编排配置
+orchestrator:
+  max_parallel_subtasks: 10
+  skill_health_check_interval_minutes: 10
+  skill_failure_threshold: 5
+
+# 可观测性配置
+observability:
+  tracing:
+    enabled: true
+    exporter: "sls"
+    sls_endpoint: ""
+    sls_project: ""
+    sls_logstore: ""
+  metrics:
+    enabled: true
+    export_interval_seconds: 60
+  logging:
+    level: "DEBUG"  # 开发环境使用 DEBUG，生产环境改为 INFO
+    format: "json"
+    sls_enabled: false
+
+# 数据区域限制
+data_residency:
+  allowed_regions:
+    - "cn-hangzhou"
+    - "cn-shanghai"
+    - "cn-beijing"
+    - "cn-shenzhen"
+    - "cn-beijing"
+    - "cn-shenzhen"
+    - "cn-beijing"
+    - "cn-shenzhen"
