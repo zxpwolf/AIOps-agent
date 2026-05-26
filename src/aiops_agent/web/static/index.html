@@ -42,7 +42,7 @@ border-left:3px solid var(--pm);background:var(--sf)}
 </head>
 <body>
 <header><h1><span class="dot"></span>AIOps Agent</h1>
-<nav style="display:flex;gap:4px;margin-left:24px"><a href="/" style="padding:6px 12px;border-radius:6px;font-size:13px;color:#e4e4e7;background:#6366f1;text-decoration:none">对话</a><a href="/skills" style="padding:6px 12px;border-radius:6px;font-size:13px;color:#a1a1aa;text-decoration:none">技能市场</a></nav>
+<nav style="display:flex;gap:4px;margin-left:24px"><a href="/" style="padding:6px 12px;border-radius:6px;font-size:13px;color:#e4e4e7;background:#6366f1;text-decoration:none">对话</a><a href="/skills" style="padding:6px 12px;border-radius:6px;font-size:13px;color:#a1a1aa;text-decoration:none">技能市场</a><a href="/dashboard" style="padding:6px 12px;border-radius:6px;font-size:13px;color:#a1a1aa;text-decoration:none">仪表盘</a></nav>
 <span id="status" style="margin-left:auto">就绪</span></header>
 <div class="wrap">
 <aside id="sidebar"><h3>技能列表</h3></aside>
@@ -156,6 +156,15 @@ function handleEvent(data,type,el){
       }else{
         addTaskStep(el,`❌ ${data.skill_name} · ${data.action} — ${data.error}`,'error');
       }
+      break;
+    case 'token':
+      if(!el._streamEl){
+        el._streamEl=document.createElement('div');
+        el._streamEl.style.cssText='margin-top:10px;padding:10px 14px;border-radius:8px;background:#1a2332;border:1px solid #2a3a4a;font-size:14px;line-height:1.6;white-space:pre-wrap;word-break:break-word';
+        el.appendChild(el._streamEl);
+      }
+      el._streamEl.textContent+=data.content;
+      msgs.scrollTop=msgs.scrollHeight;
       break;
     case 'done':
       let txt='\n\n━━━━━━━━━━━━━━━━━━━━\n';

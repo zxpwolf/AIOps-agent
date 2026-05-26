@@ -9,7 +9,9 @@ OpenAI 兼容端点: https://dashscope.aliyuncs.com/compatible-mode/v1
 
 from __future__ import annotations
 
+import json
 import logging
+from collections.abc import AsyncIterator
 from typing import Any, Optional
 
 import aiohttp
@@ -67,6 +69,14 @@ class QwenProvider(LLMProvider):
         if "enable_thinking" in kwargs:
             payload["extra_body"] = {"enable_thinking": kwargs["enable_thinking"]}
 
+        logger.info(
+            "Qwen API 请求: model=%s, messages_count=%d, max_tokens=%d, temperature=%.2f",
+            payload["model"],
+            len(payload["messages"]),
+            payload["max_tokens"],
+            payload["temperature"],
+        )
+
         async with session.post(
             f"{self._api_base}/chat/completions",
             json=payload,
@@ -93,6 +103,14 @@ class QwenProvider(LLMProvider):
 
         usage = data.get("usage", {})
 
+        logger.info(
+            "Qwen API 响应成功: model=%s, input_tokens=%d, output_tokens=%d, finish_reason=%s",
+            data.get("model", self._model),
+            usage.get("prompt_tokens", 0),
+            usage.get("completion_tokens", 0),
+            choices[0].get("finish_reason", ""),
+        )
+
         return ChatResponse(
             content=content,
             model=data.get("model", self._model),
@@ -104,6 +122,58 @@ class QwenProvider(LLMProvider):
             finish_reason=choices[0].get("finish_reason", ""),
             metadata={"reasoning_content": reasoning} if reasoning else {},
         )
+
+    @traced("llm.qwen.chat_stream")
+    async def chat_stream(
+        self, messages: list[Message], **kwargs: Any
+    ) -> AsyncIterator[str]:
+        """通义千问流式对话（OpenAI 兼容 SSE 格式）."""
+        session = await self._get_session()
+
+        payload: dict[str, Any] = {
+            "model": kwargs.get("model", self._model),
+            "messages": [
+                {"role": m.role, "content": m.content} for m in messages
+            ],
+            "max_tokens": kwargs.get("max_tokens", self._max_tokens),
+            "temperature": kwargs.get("temperature", self._temperature),
+            "stream": True,
+        }
+
+        if "enable_thinking" in kwargs:
+            payload["extra_body"] = {"enable_thinking": kwargs["enable_thinking"]}
+
+        async with session.post(
+            f"{self._api_base}/chat/completions",
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type": "application/json",
+            },
+        ) as resp:
+            if resp.status != 200:
+                body = await resp.text()
+                raise RuntimeError(
+                    f"通义千问流式 API 调用失败: HTTP {resp.status} - {body}"
+                )
+
+            async for raw_line in resp.content:
+                line = raw_line.decode("utf-8").strip()
+                if not line or not line.startswith("data:"):
+                    continue
+                data_str = line[len("data:"):].strip()
+                if data_str == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                    choices = chunk.get("choices", [])
+                    if choices:
+                        delta = choices[0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            yield content
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    continue
 
     @traced("llm.qwen.complete")
     async def complete(self, prompt: str, **kwargs: Any) -> str:

@@ -2,11 +2,17 @@
 
 配置 TracerProvider 和 SpanProcessor，提供 trace 装饰器
 为异步函数自动创建 Span，支持 SLS 导出器配置。
+
+支持两种被装饰函数:
+- 普通异步函数 (async def): 使用 await 调用
+- 异步生成器函数 (async def + yield): 使用 async for 迭代
 """
 
 from __future__ import annotations
 
+import asyncio
 import functools
+import inspect
 import logging
 from typing import Any, Callable, Optional, TypeVar
 
@@ -101,6 +107,9 @@ def traced(
 ) -> Callable[[F], F]:
     """Trace 装饰器，为异步函数自动创建 Span.
 
+    支持普通异步函数和异步生成器函数（包含 yield 的 async def）。
+    对异步生成器，Span 在生成器迭代结束后关闭。
+
     Args:
         span_name: Span 名称，默认使用函数名。
         attributes: 附加到 Span 的属性。
@@ -110,27 +119,53 @@ def traced(
         @traced("process_request")
         async def process_request(self, user_input: str) -> AgentResponse:
             ...
+
+        @traced("llm.chat_stream")
+        async def chat_stream(self, messages) -> AsyncIterator[str]:
+            ...
+            yield token
     """
 
     def decorator(func: F) -> F:
         name = span_name or func.__qualname__
 
-        @functools.wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            tracer = get_tracer()
-            with tracer.start_as_current_span(name) as span:
-                if attributes:
-                    for key, value in attributes.items():
-                        span.set_attribute(key, value)
-                try:
-                    result = await func(*args, **kwargs)
-                    span.set_status(StatusCode.OK)
-                    return result
-                except Exception as exc:
-                    span.set_status(StatusCode.ERROR, str(exc))
-                    span.record_exception(exc)
-                    raise
+        if inspect.isasyncgenfunction(func):
+            # 异步生成器 — 用 async for 包装，保持生成器语义
+            @functools.wraps(func)
+            async def gen_wrapper(*args: Any, **kwargs: Any) -> Any:
+                tracer = get_tracer()
+                with tracer.start_as_current_span(name) as span:
+                    if attributes:
+                        for key, value in attributes.items():
+                            span.set_attribute(key, value)
+                    try:
+                        async for item in func(*args, **kwargs):
+                            yield item
+                        span.set_status(StatusCode.OK)
+                    except Exception as exc:
+                        span.set_status(StatusCode.ERROR, str(exc))
+                        span.record_exception(exc)
+                        raise
 
-        return wrapper  # type: ignore[return-value]
+            return gen_wrapper  # type: ignore[return-value]
+        else:
+            # 普通异步函数
+            @functools.wraps(func)
+            async def wrapper(*args: Any, **kwargs: Any) -> Any:
+                tracer = get_tracer()
+                with tracer.start_as_current_span(name) as span:
+                    if attributes:
+                        for key, value in attributes.items():
+                            span.set_attribute(key, value)
+                    try:
+                        result = await func(*args, **kwargs)
+                        span.set_status(StatusCode.OK)
+                        return result
+                    except Exception as exc:
+                        span.set_status(StatusCode.ERROR, str(exc))
+                        span.record_exception(exc)
+                        raise
+
+            return wrapper  # type: ignore[return-value]
 
     return decorator

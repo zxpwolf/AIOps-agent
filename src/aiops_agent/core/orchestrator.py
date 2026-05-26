@@ -32,6 +32,7 @@ from aiops_agent.models.schemas import (
     TaskStatus,
 )
 from aiops_agent.observability.metrics import AgentMetrics
+from aiops_agent.observability.metrics_store import MetricsStore, RequestEvent, SkillCallEvent
 from aiops_agent.observability.tracing import get_tracer, traced
 from aiops_agent.security.security_guard import SecurityGuard
 from aiops_agent.skills.registry import SkillRegistry
@@ -64,6 +65,7 @@ class AgentOrchestrator:
         tool_executor: ToolExecutor,
         security_guard: Optional[SecurityGuard] = None,
         metrics: Optional[AgentMetrics] = None,
+        metrics_store: MetricsStore | None = None,
     ) -> None:
         self._llm_factory = llm_factory
         self._skill_registry = skill_registry
@@ -71,6 +73,7 @@ class AgentOrchestrator:
         self._tool_executor = tool_executor
         self._security_guard = security_guard
         self._metrics = metrics
+        self._metrics_store = metrics_store
 
         self._task_planner = TaskPlanner(llm_factory, skill_registry)
 
@@ -102,7 +105,17 @@ class AgentOrchestrator:
         """
         trace_id = _get_current_trace_id()
         start_time = time.monotonic()
+        self._llm_factory.clear_pending_llm_calls()
 
+        logger.info(
+            "开始处理请求: session_id=%s, user_id=%s, input=%s",
+            session_id,
+            user_id,
+            user_input[:100],
+        )
+
+        request_status = "failed"
+        sanitized_input = ""
         try:
             # 1. 输入安全校验
             sanitized_input = self._sanitize_input(user_input)
@@ -122,9 +135,17 @@ class AgentOrchestrator:
                 "session_id": session_id,
                 "resources": {k: v.model_dump() for k, v in session.resources.items()},
             }
+            logger.info("开始任务分解: input=%s", sanitized_input[:100])
             plan = await self._task_planner.decompose(sanitized_input, context)
+            logger.info(
+                "任务分解完成: plan_id=%s, sub_tasks=%d, tasks=%s",
+                plan.plan_id,
+                len(plan.sub_tasks),
+                [(t.task_id, t.skill_name, t.action) for t in plan.sub_tasks],
+            )
 
             if not plan.sub_tasks:
+                request_status = "failed"
                 return AgentResponse(
                     success=False,
                     message="无法将请求分解为可执行的任务",
@@ -137,6 +158,7 @@ class AgentOrchestrator:
             unmapped = [t for t in plan.sub_tasks if t.status == TaskStatus.FAILED]
             if unmapped and len(unmapped) == len(plan.sub_tasks):
                 available = [s.skill_name for s in self._skill_registry.list_skills()]
+                request_status = "failed"
                 return AgentResponse(
                     success=False,
                     message="当前不支持该操作",
@@ -155,6 +177,7 @@ class AgentOrchestrator:
 
             failed_tasks = [t for t in plan.sub_tasks if t.status == TaskStatus.FAILED]
             if failed_tasks:
+                request_status = "failed"
                 return AgentResponse(
                     success=False,
                     message=f"{len(failed_tasks)} 个子任务执行失败",
@@ -164,6 +187,7 @@ class AgentOrchestrator:
                     trace_id=trace_id,
                 )
 
+            request_status = "completed"
             return AgentResponse(
                 success=True,
                 message="任务执行完成",
@@ -193,6 +217,24 @@ class AgentOrchestrator:
                 trace_id=trace_id,
             )
         finally:
+            if self._metrics_store:
+                try:
+                    elapsed_ms = (time.monotonic() - start_time) * 1000
+                    llm_calls = self._llm_factory.get_pending_llm_calls()
+                    self._llm_factory.clear_pending_llm_calls()
+                    event = RequestEvent(
+                        timestamp=datetime.now(timezone.utc),
+                        session_id=session_id,
+                        trace_id=trace_id,
+                        status=request_status,
+                        duration_ms=elapsed_ms,
+                        llm_calls=llm_calls,
+                        skill_calls=[],
+                        user_input=sanitized_input[:100] if sanitized_input else user_input[:100],
+                    )
+                    await self._metrics_store.record_request(event)
+                except Exception:
+                    logger.exception("记录请求指标失败")
             # 切回 Chat 模式
             await self._context_manager.switch_mode(session_id, InteractionMode.CHAT)
 
@@ -217,6 +259,9 @@ class AgentOrchestrator:
         """
         trace_id = _get_current_trace_id()
         start_time = time.monotonic()
+        self._llm_factory.clear_pending_llm_calls()
+        sanitized_input = ""
+        skill_call_events: list[SkillCallEvent] = []
 
         try:
             # 1. 输入校验
@@ -313,25 +358,80 @@ class AgentOrchestrator:
                     }
 
                     task.status = TaskStatus.RUNNING
+                    skill_start = time.monotonic()
                     try:
                         skill = await self._skill_registry.get_skill(task.skill_name)
                         if skill is None:
                             raise SkillNotFoundError(task.skill_name)
 
-                        validation = await skill.validate(task.parameters)
+                        logger.info(
+                            "开始校验任务: task_id=%s, skill=%s, action=%s, parameters=%s",
+                            task.task_id,
+                            task.skill_name,
+                            task.action,
+                            task.parameters,
+                        )
+                        # 将 action 注入到 input_data 中，供 skill.validate() / skill.execute() 使用
+                        input_data = {"action": task.action, **task.parameters}
+                        validation = await skill.validate(input_data)
                         if not validation.valid:
+                            logger.error(
+                                "任务校验失败: task_id=%s, skill=%s, errors=%s, parameters=%s",
+                                task.task_id,
+                                task.skill_name,
+                                validation.errors,
+                                input_data,
+                            )
                             raise SkillExecutionError(
                                 message=f"输入参数校验失败: {validation.errors}",
                                 skill_name=task.skill_name,
                             )
 
-                        result = await skill.execute(task.parameters)
+                        logger.info(
+                            "开始执行任务: task_id=%s, skill=%s, action=%s",
+                            task.task_id,
+                            task.skill_name,
+                            task.action,
+                        )
+                        result = await skill.execute(input_data)
+                        logger.info(
+                            "任务执行成功: task_id=%s, skill=%s, result_keys=%s",
+                            task.task_id,
+                            task.skill_name,
+                            list(result.keys()) if isinstance(result, dict) else type(result),
+                        )
                         task.result = result
                         task.status = TaskStatus.COMPLETED
                         completed_count += 1
+                        # 技能执行成功，恢复健康状态
+                        await self._skill_registry.mark_healthy(task.skill_name)
+                        skill_duration = (time.monotonic() - skill_start) * 1000
+                        skill_call_events.append(SkillCallEvent(
+                            skill_name=task.skill_name,
+                            action=task.action,
+                            duration_ms=skill_duration,
+                            success=True,
+                        ))
                     except Exception as exc:
                         task.status = TaskStatus.FAILED
                         task.error = str(exc)
+                        skill_duration = (time.monotonic() - skill_start) * 1000
+                        skill_call_events.append(SkillCallEvent(
+                            skill_name=task.skill_name,
+                            action=task.action,
+                            duration_ms=skill_duration,
+                            success=False,
+                            error=str(exc),
+                        ))
+                        logger.error(
+                            "任务执行失败: task_id=%s, skill=%s, action=%s, error=%s, parameters=%s",
+                            task.task_id,
+                            task.skill_name,
+                            task.action,
+                            str(exc),
+                            task.parameters,
+                            exc_info=True,
+                        )
                         self._record_skill_failure(task.skill_name, str(exc))
                         failed_task_ids.add(task.task_id)
 
@@ -361,6 +461,23 @@ class AgentOrchestrator:
             if self._metrics:
                 self._metrics.record_task("completed" if all_completed else "failed", elapsed_ms)
 
+            # 6. LLM 流式总结分析
+            if all_completed and plan.sub_tasks:
+                try:
+                    synthesis_messages = self._build_synthesis_prompt(
+                        sanitized_input, plan
+                    )
+                    async for token in self._llm_factory.chat_stream(
+                        synthesis_messages
+                    ):
+                        yield {
+                            "type": "token",
+                            "content": token,
+                            "session_id": session_id,
+                        }
+                except Exception as exc:
+                    logger.warning("LLM 总结分析失败: %s", exc)
+
             yield {
                 "type": "done",
                 "status": "completed" if all_completed else "partial_failure",
@@ -372,9 +489,45 @@ class AgentOrchestrator:
                 "trace_id": trace_id,
             }
 
+            if self._metrics_store:
+                try:
+                    llm_calls = self._llm_factory.get_pending_llm_calls()
+                    self._llm_factory.clear_pending_llm_calls()
+                    event = RequestEvent(
+                        timestamp=datetime.now(timezone.utc),
+                        session_id=session_id,
+                        trace_id=trace_id,
+                        status="completed" if all_completed else "failed",
+                        duration_ms=elapsed_ms,
+                        llm_calls=llm_calls,
+                        skill_calls=skill_call_events,
+                        user_input=sanitized_input[:100],
+                    )
+                    await self._metrics_store.record_request(event)
+                except Exception:
+                    logger.exception("记录请求指标失败")
+
         except AgentError as exc:
             if self._metrics:
                 self._metrics.record_task("failed")
+            if self._metrics_store:
+                try:
+                    elapsed_ms = (time.monotonic() - start_time) * 1000
+                    llm_calls = self._llm_factory.get_pending_llm_calls()
+                    self._llm_factory.clear_pending_llm_calls()
+                    event = RequestEvent(
+                        timestamp=datetime.now(timezone.utc),
+                        session_id=session_id,
+                        trace_id=trace_id,
+                        status="failed",
+                        duration_ms=elapsed_ms,
+                        llm_calls=llm_calls,
+                        skill_calls=skill_call_events,
+                        user_input=sanitized_input[:100] if sanitized_input else user_input[:100],
+                    )
+                    await self._metrics_store.record_request(event)
+                except Exception:
+                    logger.exception("记录请求指标失败")
             yield {
                 "type": "error",
                 "status": "failed",
@@ -388,6 +541,24 @@ class AgentOrchestrator:
             logger.exception("流式请求处理异常")
             if self._metrics:
                 self._metrics.record_task("failed")
+            if self._metrics_store:
+                try:
+                    elapsed_ms = (time.monotonic() - start_time) * 1000
+                    llm_calls = self._llm_factory.get_pending_llm_calls()
+                    self._llm_factory.clear_pending_llm_calls()
+                    event = RequestEvent(
+                        timestamp=datetime.now(timezone.utc),
+                        session_id=session_id,
+                        trace_id=trace_id,
+                        status="failed",
+                        duration_ms=elapsed_ms,
+                        llm_calls=llm_calls,
+                        skill_calls=skill_call_events,
+                        user_input=sanitized_input[:100] if sanitized_input else user_input[:100],
+                    )
+                    await self._metrics_store.record_request(event)
+                except Exception:
+                    logger.exception("记录请求指标失败")
             yield {
                 "type": "error",
                 "status": "failed",
@@ -484,8 +655,9 @@ class AgentOrchestrator:
                     ],
                 )
 
-            # 校验输入
-            validation = await skill.validate(sub_task.parameters)
+            # 校验输入 — 将 action 注入到 input_data 中
+            input_data = {"action": sub_task.action, **sub_task.parameters}
+            validation = await skill.validate(input_data)
             if not validation.valid:
                 raise SkillExecutionError(
                     message=f"输入参数校验失败: {validation.errors}",
@@ -493,11 +665,14 @@ class AgentOrchestrator:
                 )
 
             # 执行
-            result = await skill.execute(sub_task.parameters)
+            result = await skill.execute(input_data)
 
             sub_task.result = result
             sub_task.status = TaskStatus.COMPLETED
             sm.transition(TaskStatus.COMPLETED)
+
+            # 技能执行成功，恢复健康状态
+            await self._skill_registry.mark_healthy(sub_task.skill_name)
 
         except Exception as exc:
             sub_task.status = TaskStatus.FAILED
@@ -516,6 +691,40 @@ class AgentOrchestrator:
     # ------------------------------------------------------------------
     # 健康监控
     # ------------------------------------------------------------------
+
+    def _build_synthesis_prompt(
+        self, user_input: str, plan: TaskPlan
+    ) -> list[Message]:
+        """构建 LLM 总结分析的 prompt."""
+        system_msg = (
+            "你是 AIOps 智能运维助手。基于以下已执行完成的任务结果，"
+            "为用户提供清晰、专业的分析总结。包括关键发现、数据解读和后续建议。"
+            "请用简洁的中文回答，使用 Markdown 格式。"
+        )
+
+        # 收集任务结果
+        results_text = ""
+        for task in plan.sub_tasks:
+            results_text += f"\n### 任务: {task.skill_name} · {task.action}\n"
+            results_text += f"状态: {task.status.value}\n"
+            if task.result:
+                import json as _json
+                try:
+                    result_str = _json.dumps(task.result, ensure_ascii=False, indent=2)
+                except (TypeError, ValueError):
+                    result_str = str(task.result)
+                results_text += f"结果:\n```json\n{result_str}\n```\n"
+
+        user_content = (
+            f"用户原始请求: {user_input}\n\n"
+            f"## 任务执行结果\n{results_text}\n\n"
+            f"请基于以上结果，回答用户的问题并提供分析建议。"
+        )
+
+        return [
+            Message(role="system", content=system_msg),
+            Message(role="user", content=user_content),
+        ]
 
     def _record_skill_failure(self, skill_name: str, error: str) -> None:
         """记录 Skill 失败，检查是否需要标记为不健康."""

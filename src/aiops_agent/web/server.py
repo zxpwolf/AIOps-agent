@@ -10,9 +10,12 @@ import logging
 import uuid
 from functools import partial
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from aiohttp import web
+
+from aiops_agent.observability.metrics_store import get_metrics_store
 
 from aiops_agent.core.orchestrator import AgentOrchestrator
 from aiops_agent.main import create_agent
@@ -193,6 +196,98 @@ async def handle_skills_page(request: web.Request) -> web.Response:
     return web.Response(text="Skills page not found", status=404)
 
 
+async def handle_dashboard(request: web.Request) -> web.Response:
+    """GET /dashboard — 可观测性仪表盘页面."""
+    html_path = Path(__file__).parent / "static" / "dashboard.html"
+    if html_path.exists():
+        return web.Response(
+            text=html_path.read_text(encoding="utf-8"),
+            content_type="text/html",
+        )
+    return web.Response(text="Dashboard page not found", status=404)
+
+
+def _parse_time_params(request: web.Request) -> tuple[datetime, datetime]:
+    """Parse start/end query params with default of last 24h."""
+    now = datetime.now(timezone.utc)
+    start_str = request.query.get("start")
+    end_str = request.query.get("end")
+
+    if start_str:
+        start = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+    else:
+        start = now - timedelta(hours=24)
+
+    if end_str:
+        end = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+    else:
+        end = now
+
+    return start, end
+
+
+async def handle_metrics_summary(request: web.Request) -> web.Response:
+    """GET /api/metrics/summary — aggregated metrics summary."""
+    try:
+        start, end = _parse_time_params(request)
+        store = get_metrics_store()
+        data = store.query_summary(start, end)
+        return _json_response(data)
+    except Exception as exc:
+        logger.exception("Metrics summary query failed")
+        return _json_response({"error": str(exc)}, status=500)
+
+
+async def handle_metrics_timeline(request: web.Request) -> web.Response:
+    """GET /api/metrics/timeline — time-bucketed metrics."""
+    try:
+        start, end = _parse_time_params(request)
+        bucket = request.query.get("bucket", "hour")
+        store = get_metrics_store()
+        data = store.query_timeline(start, end, bucket)
+        return _json_response(data)
+    except Exception as exc:
+        logger.exception("Metrics timeline query failed")
+        return _json_response({"error": str(exc)}, status=500)
+
+
+async def handle_metrics_skills(request: web.Request) -> web.Response:
+    """GET /api/metrics/skills — per-skill statistics."""
+    try:
+        start, end = _parse_time_params(request)
+        store = get_metrics_store()
+        data = store.query_skill_stats(start, end)
+        return _json_response(data)
+    except Exception as exc:
+        logger.exception("Metrics skills query failed")
+        return _json_response({"error": str(exc)}, status=500)
+
+
+async def handle_metrics_llm(request: web.Request) -> web.Response:
+    """GET /api/metrics/llm — per-provider/model LLM statistics."""
+    try:
+        start, end = _parse_time_params(request)
+        store = get_metrics_store()
+        data = store.query_llm_stats(start, end)
+        return _json_response(data)
+    except Exception as exc:
+        logger.exception("Metrics llm query failed")
+        return _json_response({"error": str(exc)}, status=500)
+
+
+async def handle_metrics_requests(request: web.Request) -> web.Response:
+    """GET /api/metrics/requests — recent request events."""
+    try:
+        limit_str = request.query.get("limit", "50")
+        limit = int(limit_str)
+        store = get_metrics_store()
+        data = store.query_recent_requests(limit)
+        return _json_response(data)
+    except Exception as exc:
+        logger.exception("Metrics requests query failed")
+        return _json_response({"error": str(exc)}, status=500)
+
+
 def create_app() -> web.Application:
     """创建 aiohttp 应用."""
     app = web.Application()
@@ -200,11 +295,17 @@ def create_app() -> web.Application:
     # API 路由
     app.router.add_get("/", handle_index)
     app.router.add_get("/skills", handle_skills_page)
+    app.router.add_get("/dashboard", handle_dashboard)
     app.router.add_get("/health", handle_health)
     app.router.add_get("/ready", handle_ready)
     app.router.add_post("/api/chat", handle_chat)
     app.router.add_post("/api/chat/stream", handle_chat_stream)
     app.router.add_get("/api/skills", handle_skills)
+    app.router.add_get("/api/metrics/summary", handle_metrics_summary)
+    app.router.add_get("/api/metrics/timeline", handle_metrics_timeline)
+    app.router.add_get("/api/metrics/skills", handle_metrics_skills)
+    app.router.add_get("/api/metrics/llm", handle_metrics_llm)
+    app.router.add_get("/api/metrics/requests", handle_metrics_requests)
 
     # 静态文件
     static_dir = Path(__file__).parent / "static"

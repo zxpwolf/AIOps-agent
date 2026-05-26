@@ -26,6 +26,7 @@ from aiops_agent.llm.provider import LLMProviderFactory
 from aiops_agent.models.schemas import SkillDefinition
 from aiops_agent.observability.logging import setup_logging
 from aiops_agent.observability.metrics import AgentMetrics, setup_metrics
+from aiops_agent.observability.metrics_store import get_metrics_store
 from aiops_agent.observability.tracing import setup_tracing
 from aiops_agent.security.audit_logger import AuditLogger
 from aiops_agent.security.credential_manager import CredentialManager
@@ -176,20 +177,64 @@ async def create_agent(config: dict | None = None) -> AgentOrchestrator:
     llm_factory = LLMProviderFactory()
 
     # 注册内置 Demo Provider（无需 API Key，用于本地开发和演示）
-    from aiops_agent.llm.demo import DemoProvider
-    llm_factory.register("demo", DemoProvider())
-    llm_factory.set_primary("demo")
+    # from aiops_agent.llm.demo import DemoProvider
+    # llm_factory.register("demo", DemoProvider())
 
     # 如果配置了真实 API Key，注册对应 Provider 并设为主 Provider
-    qwen_key = os.getenv("QWEN_API_KEY", "")
+    llm_config = config.get("llm", {})
+    qwen_config = llm_config.get("providers", {}).get("qwen", {})
+    qwen_key = os.getenv("QWEN_API_KEY") or qwen_config.get("api_key", "")
+    qwen_model = qwen_config.get("model", "qwen3-235b-a22b")
     if qwen_key:
         from aiops_agent.llm.qwen import QwenProvider
         llm_factory.register("qwen", QwenProvider(
             api_key=qwen_key,
-            model="qwen3-235b-a22b",
+            model=qwen_model,
+            api_base=qwen_config.get("api_base", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+            max_tokens=qwen_config.get("max_tokens", 4096),
+            temperature=qwen_config.get("temperature", 0.7),
+            timeout_seconds=qwen_config.get("timeout_seconds", 120),
         ))
         llm_factory.set_primary("qwen")
-        llm_factory.set_fallback("demo")
+        logger.info("Qwen Provider 已注册并设为主 Provider (model=%s)", qwen_model)
+        
+        # 注册 Claude 作为 fallback provider
+        claude_config = llm_config.get("providers", {}).get("claude", {})
+        claude_key = os.getenv("CLAUDE_API_KEY") or claude_config.get("api_key", "")
+        if claude_key:
+            from aiops_agent.llm.claude import ClaudeProvider
+            llm_factory.register("claude", ClaudeProvider(
+                api_key=claude_key,
+                model=claude_config.get("model", "claude-3-sonnet-20240229"),
+                api_base=claude_config.get("api_base", "https://api.anthropic.com/v1"),
+                max_tokens=claude_config.get("max_tokens", 4096),
+                temperature=claude_config.get("temperature", 0.7),
+                timeout_seconds=claude_config.get("timeout_seconds", 60),
+            ))
+            llm_factory.set_fallback("claude")
+            logger.info("Claude Provider 已注册并设为 Fallback Provider")
+        else:
+            # 如果没有 Claude API Key，不设置 fallback
+            logger.warning("未配置 Claude API Key，将不使用 fallback provider")
+        
+        # 注册 GPT provider（可选）
+        gpt_config = llm_config.get("providers", {}).get("gpt", {})
+        gpt_key = os.getenv("OPENAI_API_KEY") or gpt_config.get("api_key", "")
+        if gpt_key:
+            from aiops_agent.llm.gpt import GPTProvider
+            llm_factory.register("gpt", GPTProvider(
+                api_key=gpt_key,
+                model=gpt_config.get("model", "gpt-4"),
+                api_base=gpt_config.get("api_base", "https://api.openai.com/v1"),
+                max_tokens=gpt_config.get("max_tokens", 4096),
+                temperature=gpt_config.get("temperature", 0.7),
+                timeout_seconds=gpt_config.get("timeout_seconds", 60),
+            ))
+            logger.info("GPT Provider 已注册")
+        
+    else:
+        llm_factory.set_primary("demo")
+        logger.warning("未配置 Qwen API Key，使用 Demo Provider 作为主 Provider")
 
     # ------------------------------------------------------------------
     # 技能注册
@@ -209,6 +254,7 @@ async def create_agent(config: dict | None = None) -> AgentOrchestrator:
     # ------------------------------------------------------------------
     # 编排器
     # ------------------------------------------------------------------
+    metrics_store = get_metrics_store()
     orchestrator = AgentOrchestrator(
         llm_factory=llm_factory,
         skill_registry=skill_registry,
@@ -216,6 +262,7 @@ async def create_agent(config: dict | None = None) -> AgentOrchestrator:
         tool_executor=tool_executor,
         security_guard=security_guard,
         metrics=metrics,
+        metrics_store=metrics_store,
     )
 
     logger.info("AIOps Agent 初始化完成")
@@ -233,7 +280,7 @@ async def _register_default_skills(
                 skill_name="monitoring",
                 description="云监控指标查询与 SLS 日志分析，支持 CloudMonitor 多维度指标查询、SLS 日志检索和智能告警分析",
                 version="1.0.0",
-                capabilities=["cloud_monitor_query", "sls_log_query", "metric_analysis"],
+                capabilities=["query_metrics", "query_logs", "analyze_metrics"],
                 required_permissions=["cms:QueryMetricData", "sls:GetLogs"],
                 author="AIOps Team",
                 category="监控诊断",
@@ -242,7 +289,7 @@ async def _register_default_skills(
                 install_count=128,
                 rating=4.7,
                 updated_at="2026-04-20",
-                readme="# 监控诊断 Skill\n\n实时查询阿里云 CloudMonitor 指标和 SLS 日志，支持多维度聚合分析和智能告警关联。\n\n## 能力\n- `cloud_monitor_query` — 查询 CPU、内存、磁盘、网络等监控指标\n- `sls_log_query` — SLS 日志全文检索和 SQL 分析\n- `metric_analysis` — 指标趋势分析和异常检测",
+                readme="# 监控诊断 Skill\n\n实时查询阿里云 CloudMonitor 指标和 SLS 日志，支持多维度聚合分析和智能告警关联。\n\n## 能力\n- `query_metrics` — 查询 CPU、内存、磁盘、网络等监控指标\n- `query_logs` — SLS 日志全文检索和 SQL 分析\n- `analyze_metrics` — 指标趋势分析和异常检测",
             ),
             MonitoringSkill(),
         ),
@@ -251,7 +298,7 @@ async def _register_default_skills(
                 skill_name="troubleshooting",
                 description="ECS 健康检查、网络连通性诊断、RDS 慢查询分析，快速定位运维故障根因",
                 version="1.0.0",
-                capabilities=["ecs_health_check", "network_diagnosis", "rds_slow_query_analysis"],
+                capabilities=["ecs_health_check", "network_diagnosis", "rds_slow_query"],
                 required_permissions=["ecs:DescribeInstances", "vpc:DescribeVpcs"],
                 author="AIOps Team",
                 category="故障排查",
@@ -260,7 +307,7 @@ async def _register_default_skills(
                 install_count=96,
                 rating=4.5,
                 updated_at="2026-04-18",
-                readme="# 故障排查 Skill\n\n自动化故障排查工具集，覆盖 ECS 实例健康检查、VPC 网络连通性诊断和 RDS 慢查询分析。\n\n## 能力\n- `ecs_health_check` — 检查 ECS 实例状态、系统盘、安全组\n- `network_diagnosis` — VPC/VSW 网络连通性和路由诊断\n- `rds_slow_query_analysis` — RDS 慢查询 Top N 分析和优化建议",
+                readme="# 故障排查 Skill\n\n自动化故障排查工具集，覆盖 ECS 实例健康检查、VPC 网络连通性诊断和 RDS 慢查询分析。\n\n## 能力\n- `ecs_health_check` — 检查 ECS 实例状态、系统盘、安全组\n- `network_diagnosis` — VPC/VSW 网络连通性和路由诊断\n- `rds_slow_query` — RDS 慢查询 Top N 分析和优化建议",
             ),
             TroubleshootingSkill(),
         ),
@@ -269,7 +316,7 @@ async def _register_default_skills(
                 skill_name="change_management",
                 description="变更风险评估与回滚方案推荐，在执行变更前自动评估影响范围和风险等级",
                 version="1.0.0",
-                capabilities=["change_risk_assessment", "rollback_recommendation"],
+                capabilities=["risk_assessment", "rollback_plan"],
                 required_permissions=["ecs:DescribeInstances"],
                 author="AIOps Team",
                 category="变更管理",
@@ -278,7 +325,7 @@ async def _register_default_skills(
                 install_count=64,
                 rating=4.3,
                 updated_at="2026-04-15",
-                readme="# 变更管理 Skill\n\n变更前自动评估风险等级，生成回滚方案，降低变更事故概率。\n\n## 能力\n- `change_risk_assessment` — 评估变更影响范围、依赖关系和风险等级\n- `rollback_recommendation` — 生成分步回滚方案和验证检查点",
+                readme="# 变更管理 Skill\n\n变更前自动评估风险等级，生成回滚方案，降低变更事故概率。\n\n## 能力\n- `risk_assessment` — 评估变更影响范围、依赖关系和风险等级\n- `rollback_plan` — 生成分步回滚方案和验证检查点",
             ),
             ChangeManagementSkill(),
         ),

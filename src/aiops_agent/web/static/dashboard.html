@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIOps Agent Observability</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root{--bg:#0f1117;--sf:#1a1d27;--bd:#2a2d3a;--tx:#e4e4e7;--mt:#71717a;
+--pm:#6366f1;--ph:#818cf8;--ok:#22c55e;--er:#ef4444;--am:#f59e0b}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+background:var(--bg);color:var(--tx);min-height:100vh;min-width:1024px}
+header{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;align-items:center;
+justify-content:space-between;padding:12px 24px;border-bottom:1px solid var(--bd);
+background:var(--sf);backdrop-filter:blur(12px)}
+header h1{font-size:17px;font-weight:600;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.time-range{display:flex;gap:4px;padding:3px;border-radius:8px;background:var(--bg);border:1px solid var(--bd)}
+.time-range button{padding:6px 14px;border:none;border-radius:6px;font-size:12px;
+cursor:pointer;background:transparent;color:var(--mt);transition:all .2s;font-weight:500}
+.time-range button.active{background:var(--pm);color:#fff}
+.time-range button:hover:not(.active){color:var(--tx);background:var(--sf)}
+.header-right{display:flex;align-items:center;gap:16px}
+.refresh-indicator{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mt)}
+.refresh-dot{width:8px;height:8px;background:var(--ok);border-radius:50%;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.header-link{padding:6px 14px;border-radius:6px;font-size:13px;color:var(--mt);
+text-decoration:none;transition:all .2s;border:1px solid var(--bd)}
+.header-link:hover{color:var(--tx);border-color:var(--ph)}
+.container{margin-top:60px;padding:24px;display:flex;flex-direction:column;gap:20px}
+/* Summary Cards */
+.summary-row{display:grid;grid-template-columns:repeat(5,1fr);gap:16px}
+.card{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px;
+transition:border-color .2s}
+.card:hover{border-color:var(--ph)}
+.card-label{font-size:12px;color:var(--mt);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.card-value{font-size:28px;font-weight:700;font-family:'SF Mono',Monaco,Consolas,monospace}
+.card-sub{font-size:11px;color:var(--mt);margin-top:4px}
+.card-value.green{color:var(--ok)}
+.card-value.amber{color:var(--am)}
+.card-value.red{color:var(--er)}
+/* Chart Section */
+.chart-section{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:20px}
+.chart-section h2{font-size:15px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.chart-container{position:relative;width:100%;height:300px}
+/* Two Column Layout */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.panel{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:20px}
+.panel h2{font-size:15px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+/* Tables */
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{text-align:left;padding:8px 12px;color:var(--mt);font-weight:500;font-size:11px;
+text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd);cursor:pointer;
+user-select:none;white-space:nowrap}
+thead th:hover{color:var(--tx)}
+thead th .sort-arrow{margin-left:4px;font-size:10px;opacity:.5}
+thead th.sorted .sort-arrow{opacity:1;color:var(--pm)}
+tbody td{padding:8px 12px;border-bottom:1px solid var(--bd);font-family:'SF Mono',Monaco,Consolas,monospace;
+font-size:12px}
+tbody tr:nth-child(even){background:rgba(255,255,255,.02)}
+tbody tr:hover{background:rgba(99,102,241,.06)}
+tbody tr{transition:background .15s}
+/* Badges */
+.badge{display:inline-block;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;
+text-transform:uppercase;letter-spacing:.3px}
+.badge-ok{background:#22c55e22;color:var(--ok)}
+.badge-er{background:#ef444422;color:var(--er)}
+.badge-am{background:#f59e0b22;color:var(--am)}
+/* LLM Provider Cards */
+.llm-grid{display:flex;flex-direction:column;gap:12px}
+.llm-card{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:14px;
+display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center}
+.llm-name{font-weight:600;font-size:13px}
+.llm-stats{display:flex;gap:16px;flex-wrap:wrap}
+.llm-stat{display:flex;flex-direction:column;gap:2px}
+.llm-stat-label{font-size:10px;color:var(--mt);text-transform:uppercase;letter-spacing:.3px}
+.llm-stat-value{font-size:13px;font-family:'SF Mono',Monaco,Consolas,monospace}
+.error-bar{width:60px;height:6px;background:var(--bd);border-radius:3px;overflow:hidden}
+.error-bar-fill{height:100%;border-radius:3px;transition:width .3s}
+/* Requests Table */
+.requests-section{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:20px}
+.requests-section h2{font-size:15px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.requests-wrap{max-height:500px;overflow-y:auto}
+.requests-wrap::-webkit-scrollbar{width:6px}
+.requests-wrap::-webkit-scrollbar-track{background:var(--bg)}
+.requests-wrap::-webkit-scrollbar-thumb{background:var(--bd);border-radius:3px}
+tr.expandable{cursor:pointer}
+tr.detail-row td{padding:0;border-bottom:1px solid var(--bd)}
+.detail-content{padding:12px 16px;background:var(--bg);display:none;font-size:12px;line-height:1.8}
+.detail-content.open{display:block}
+.detail-content h4{font-size:12px;color:var(--mt);margin-top:8px;text-transform:uppercase;letter-spacing:.5px}
+.detail-content h4:first-child{margin-top:0}
+.session-id{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Loading state */
+.loading{display:flex;align-items:center;justify-content:center;padding:40px;color:var(--mt);font-size:14px}
+.loading-dot{animation:pulse 1s infinite}
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="refresh-dot"></span> AIOps Agent Observability</h1>
+  <div class="time-range">
+    <button data-range="1h">1h</button>
+    <button data-range="6h">6h</button>
+    <button data-range="24h" class="active">24h</button>
+    <button data-range="7d">7d</button>
+    <button data-range="30d">30d</button>
+  </div>
+  <div class="header-right">
+    <div class="refresh-indicator"><span class="refresh-dot"></span> Auto-refresh 30s</div>
+    <a href="/" class="header-link">Chat</a>
+  </div>
+</header>
+
+<div class="container">
+  <!-- Summary Cards -->
+  <div class="summary-row" id="summary-row">
+    <div class="card"><div class="card-label">Total Requests</div><div class="card-value" id="total-requests">—</div><div class="card-sub">in selected range</div></div>
+    <div class="card"><div class="card-label">Success Rate</div><div class="card-value" id="success-rate">—</div><div class="card-sub">of all requests</div></div>
+    <div class="card"><div class="card-label">Avg Latency</div><div class="card-value" id="avg-latency">—</div><div class="card-sub">milliseconds</div></div>
+    <div class="card"><div class="card-label">P95 Latency</div><div class="card-value" id="p95-latency">—</div><div class="card-sub">milliseconds</div></div>
+    <div class="card"><div class="card-label">Total LLM Tokens</div><div class="card-value" id="total-tokens">—</div><div class="card-sub">input + output</div></div>
+  </div>
+
+  <!-- Timeline Chart -->
+  <div class="chart-section">
+    <h2>📈 Request Timeline</h2>
+    <div class="chart-container"><canvas id="timeline-chart"></canvas></div>
+  </div>
+
+  <!-- Two Column: Skills + LLM -->
+  <div class="two-col">
+    <div class="panel">
+      <h2>🔧 Skill Performance</h2>
+      <table id="skills-table">
+        <thead><tr>
+          <th data-sort="name">Skill Name <span class="sort-arrow">↕</span></th>
+          <th data-sort="calls">Calls <span class="sort-arrow">↕</span></th>
+          <th data-sort="success_rate">Success Rate <span class="sort-arrow">↕</span></th>
+          <th data-sort="avg_latency">Avg Latency <span class="sort-arrow">↕</span></th>
+          <th data-sort="status">Status <span class="sort-arrow">↕</span></th>
+        </tr></thead>
+        <tbody id="skills-tbody"></tbody>
+      </table>
+    </div>
+    <div class="panel">
+      <h2>🤖 LLM Provider Stats</h2>
+      <div class="llm-grid" id="llm-grid"></div>
+    </div>
+  </div>
+
+  <!-- Recent Requests -->
+  <div class="requests-section">
+    <h2>📋 Recent Requests</h2>
+    <div class="requests-wrap">
+      <table id="requests-table">
+        <thead><tr>
+          <th>Time</th>
+          <th>Session ID</th>
+          <th>Status</th>
+          <th>Duration</th>
+          <th>Skills Used</th>
+          <th>Tokens</th>
+        </tr></thead>
+        <tbody id="requests-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──
+let currentRange = '24h';
+let refreshInterval = null;
+let timelineChart = null;
+let skillsData = [];
+let sortColumn = 'calls';
+let sortDirection = 'desc';
+
+// ── Time Range ──
+function getTimeRange(range) {
+    const end = new Date();
+    const start = new Date();
+    const hours = {'1h':1, '6h':6, '24h':24, '7d':168, '30d':720};
+    start.setHours(start.getHours() - hours[range]);
+    return {start: start.toISOString(), end: end.toISOString()};
+}
+
+function getBucket(range) {
+    if (range === '1h' || range === '6h') return 'minute';
+    if (range === '24h' || range === '7d') return 'hour';
+    return 'day';
+}
+
+// ── Formatting Helpers ──
+function formatNumber(n) {
+    if (n == null) return '—';
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n);
+}
+
+function formatMs(ms) {
+    if (ms == null) return '—';
+    return Math.round(ms) + 'ms';
+}
+
+function formatPercent(p) {
+    if (p == null) return '—';
+    return p.toFixed(1) + '%';
+}
+
+function formatTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false});
+}
+
+function truncate(s, len) {
+    if (!s) return '—';
+    len = len || 12;
+    return s.length > len ? s.slice(0, len) + '…' : s;
+}
+
+// ── Badge Helpers ──
+function successBadge(rate) {
+    if (rate == null) return '<span class="badge badge-am">N/A</span>';
+    if (rate >= 95) return '<span class="badge badge-ok">healthy</span>';
+    if (rate >= 80) return '<span class="badge badge-am">warning</span>';
+    return '<span class="badge badge-er">unhealthy</span>';
+}
+
+function statusBadge(status) {
+    if (!status) return '—';
+    const s = status.toLowerCase();
+    if (s === 'completed' || s === 'success' || s === 'healthy') return '<span class="badge badge-ok">' + status + '</span>';
+    if (s === 'failed' || s === 'error' || s === 'unhealthy') return '<span class="badge badge-er">' + status + '</span>';
+    return '<span class="badge badge-am">' + status + '</span>';
+}
+
+function successRateClass(rate) {
+    if (rate == null) return '';
+    if (rate >= 95) return 'green';
+    if (rate >= 80) return 'amber';
+    return 'red';
+}
+
+// ── Render: Summary Cards ──
+function renderSummary(data) {
+    const s = data.summary || data;
+    document.getElementById('total-requests').textContent = formatNumber(s.total_requests);
+    const srEl = document.getElementById('success-rate');
+    srEl.textContent = formatPercent(s.success_rate);
+    srEl.className = 'card-value ' + successRateClass(s.success_rate);
+    document.getElementById('avg-latency').textContent = formatMs(s.avg_latency_ms);
+    document.getElementById('p95-latency').textContent = formatMs(s.p95_latency_ms);
+    document.getElementById('total-tokens').textContent = formatNumber(s.total_tokens);
+}
+
+// ── Render: Timeline Chart ──
+function renderTimeline(data) {
+    const items = data.timeline || data.items || data || [];
+    const labels = items.map(i => i.bucket || i.label || i.time || '');
+    const counts = items.map(i => i.request_count || i.count || 0);
+    const latencies = items.map(i => i.avg_latency_ms || i.avg_latency || 0);
+
+    if (timelineChart) timelineChart.destroy();
+
+    const ctx = document.getElementById('timeline-chart').getContext('2d');
+    timelineChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Requests',
+                    type: 'bar',
+                    data: counts,
+                    backgroundColor: 'rgba(99,102,241,0.5)',
+                    borderColor: '#6366f1',
+                    borderWidth: 1,
+                    yAxisID: 'y',
+                    order: 2
+                },
+                {
+                    label: 'Avg Latency (ms)',
+                    type: 'line',
+                    data: latencies,
+                    borderColor: '#f59e0b',
+                    backgroundColor: 'rgba(245,158,11,0.1)',
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#f59e0b',
+                    fill: true,
+                    tension: 0.3,
+                    yAxisID: 'y1',
+                    order: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {mode: 'index', intersect: false},
+            plugins: {
+                legend: {
+                    labels: {color: '#71717a', font: {size: 11}, usePointStyle: true, pointStyle: 'rectRounded'}
+                },
+                tooltip: {
+                    backgroundColor: '#1a1d27',
+                    borderColor: '#2a2d3a',
+                    borderWidth: 1,
+                    titleColor: '#e4e4e7',
+                    bodyColor: '#e4e4e7'
+                }
+            },
+            scales: {
+                x: {
+                    grid: {color: 'rgba(42,45,58,0.5)'},
+                    ticks: {color: '#71717a', font: {size: 10}, maxRotation: 45}
+                },
+                y: {
+                    type: 'linear',
+                    position: 'left',
+                    title: {display: true, text: 'Requests', color: '#71717a'},
+                    grid: {color: 'rgba(42,45,58,0.5)'},
+                    ticks: {color: '#71717a', font: {size: 10}},
+                    beginAtZero: true
+                },
+                y1: {
+                    type: 'linear',
+                    position: 'right',
+                    title: {display: true, text: 'Latency (ms)', color: '#71717a'},
+                    grid: {drawOnChartArea: false},
+                    ticks: {color: '#71717a', font: {size: 10}},
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+
+// ── Render: Skills Table ──
+function renderSkills(data) {
+    skillsData = data.skills || data.items || data || [];
+    sortAndRenderSkills();
+}
+
+function sortAndRenderSkills() {
+    const sorted = [...skillsData].sort((a, b) => {
+        let va = a[sortColumn], vb = b[sortColumn];
+        if (typeof va === 'string') va = va.toLowerCase();
+        if (typeof vb === 'string') vb = vb.toLowerCase();
+        if (va < vb) return sortDirection === 'asc' ? -1 : 1;
+        if (va > vb) return sortDirection === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    const tbody = document.getElementById('skills-tbody');
+    tbody.innerHTML = sorted.map(s => {
+        const rate = s.success_rate != null ? s.success_rate : (s.calls > 0 ? ((s.successes || 0) / s.calls * 100) : null);
+        return '<tr>' +
+            '<td style="font-family:inherit">' + (s.skill_name || s.name || '—') + '</td>' +
+            '<td>' + (s.calls || 0) + '</td>' +
+            '<td>' + formatPercent(rate) + '</td>' +
+            '<td>' + formatMs(s.avg_latency_ms || s.avg_latency) + '</td>' +
+            '<td>' + successBadge(rate) + '</td>' +
+            '</tr>';
+    }).join('');
+
+    // Update sort indicators
+    document.querySelectorAll('#skills-table thead th').forEach(th => {
+        th.classList.toggle('sorted', th.dataset.sort === sortColumn);
+        const arrow = th.querySelector('.sort-arrow');
+        if (arrow && th.dataset.sort === sortColumn) {
+            arrow.textContent = sortDirection === 'asc' ? '↑' : '↓';
+        } else if (arrow) {
+            arrow.textContent = '↕';
+        }
+    });
+}
+
+// ── Render: LLM Providers ──
+function renderLLM(data) {
+    const providers = data.providers || data.items || data || [];
+    const grid = document.getElementById('llm-grid');
+    grid.innerHTML = providers.map(p => {
+        const errRate = p.error_rate || (p.calls > 0 ? ((p.errors || 0) / p.calls * 100) : 0);
+        const errColor = errRate > 10 ? 'var(--er)' : errRate > 5 ? 'var(--am)' : 'var(--ok)';
+        return '<div class="llm-card">' +
+            '<div><div class="llm-name">' + (p.provider || p.name || '—') + '</div></div>' +
+            '<div class="llm-stats">' +
+                '<div class="llm-stat"><div class="llm-stat-label">Calls</div><div class="llm-stat-value">' + (p.calls || 0) + '</div></div>' +
+                '<div class="llm-stat"><div class="llm-stat-label">Tokens In</div><div class="llm-stat-value">' + formatNumber(p.tokens_in || p.input_tokens || 0) + '</div></div>' +
+                '<div class="llm-stat"><div class="llm-stat-label">Tokens Out</div><div class="llm-stat-value">' + formatNumber(p.tokens_out || p.output_tokens || 0) + '</div></div>' +
+                '<div class="llm-stat"><div class="llm-stat-label">Avg Latency</div><div class="llm-stat-value">' + formatMs(p.avg_latency_ms || p.avg_latency) + '</div></div>' +
+            '</div>' +
+            '<div class="llm-stat" style="text-align:right">' +
+                '<div class="llm-stat-label">Error Rate</div>' +
+                '<div style="display:flex;align-items:center;gap:6px">' +
+                    '<span class="llm-stat-value" style="color:' + errColor + '">' + errRate.toFixed(1) + '%</span>' +
+                    '<div class="error-bar"><div class="error-bar-fill" style="width:' + Math.min(errRate, 100) + '%;background:' + errColor + '"></div></div>' +
+                '</div>' +
+            '</div>' +
+            '</div>';
+    }).join('');
+
+    if (providers.length === 0) {
+        grid.innerHTML = '<div style="color:var(--mt);text-align:center;padding:24px">No LLM provider data available</div>';
+    }
+}
+
+// ── Render: Recent Requests ──
+function renderRequests(data) {
+    const requests = data.requests || data.items || data || [];
+    const tbody = document.getElementById('requests-tbody');
+    tbody.innerHTML = requests.map((r, i) => {
+        const skills = r.skills_used || r.skills || [];
+        const skillsStr = Array.isArray(skills) ? skills.join(', ') : (skills || '—');
+        const tokens = r.tokens || r.total_tokens || 0;
+        return '<tr class="expandable" onclick="toggleDetail(' + i + ')">' +
+            '<td>' + formatTime(r.created_at || r.time || r.timestamp) + '</td>' +
+            '<td><div class="session-id" title="' + (r.session_id || '') + '">' + truncate(r.session_id) + '</div></td>' +
+            '<td>' + statusBadge(r.status) + '</td>' +
+            '<td>' + formatMs(r.duration_ms || r.duration) + '</td>' +
+            '<td style="font-family:inherit">' + skillsStr + '</td>' +
+            '<td>' + formatNumber(tokens) + '</td>' +
+            '</tr>' +
+            '<tr class="detail-row"><td colspan="6"><div class="detail-content" id="detail-' + i + '">' +
+                buildDetailContent(r) +
+            '</div></td></tr>';
+    }).join('');
+}
+
+function buildDetailContent(r) {
+    let html = '';
+    const skills = r.skill_breakdown || r.skills_detail || [];
+    if (skills.length > 0) {
+        html += '<h4>Skill Breakdown</h4>';
+        html += skills.map(s =>
+            '<div>• ' + (s.name || s.skill_name) + ' — ' + formatMs(s.duration_ms || s.duration) +
+            ' — ' + statusBadge(s.status) + '</div>'
+        ).join('');
+    }
+    const llmCalls = r.llm_calls || r.llm_detail || [];
+    if (llmCalls.length > 0) {
+        html += '<h4 style="margin-top:8px">LLM Calls</h4>';
+        html += llmCalls.map(c =>
+            '<div>• ' + (c.provider || 'unknown') + ' — ' + formatMs(c.duration_ms || c.duration) +
+            ' — tokens: ' + (c.tokens_in || 0) + '/' + (c.tokens_out || 0) + '</div>'
+        ).join('');
+    }
+    if (!skills.length && !llmCalls.length) {
+        html += '<div style="color:var(--mt)">No detailed breakdown available</div>';
+    }
+    return html;
+}
+
+function toggleDetail(index) {
+    const el = document.getElementById('detail-' + index);
+    if (el) el.classList.toggle('open');
+}
+
+// ── Data Fetching ──
+async function fetchDashboardData() {
+    const {start, end} = getTimeRange(currentRange);
+    const bucket = getBucket(currentRange);
+    try {
+        const [summary, timeline, skills, llm, requests] = await Promise.all([
+            fetch('/api/metrics/summary?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end)).then(r => r.ok ? r.json() : {summary:{}}).catch(() => ({summary:{}})),
+            fetch('/api/metrics/timeline?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end) + '&bucket=' + bucket).then(r => r.ok ? r.json() : {timeline:[]}).catch(() => ({timeline:[]})),
+            fetch('/api/metrics/skills?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end)).then(r => r.ok ? r.json() : {skills:[]}).catch(() => ({skills:[]})),
+            fetch('/api/metrics/llm?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end)).then(r => r.ok ? r.json() : {providers:[]}).catch(() => ({providers:[]})),
+            fetch('/api/metrics/requests?limit=50').then(r => r.ok ? r.json() : {requests:[]}).catch(() => ({requests:[]})),
+        ]);
+        renderSummary(summary);
+        renderTimeline(timeline);
+        renderSkills(skills);
+        renderLLM(llm);
+        renderRequests(requests);
+    } catch (err) {
+        console.error('Dashboard fetch error:', err);
+    }
+}
+
+// ── Auto-Refresh ──
+function startAutoRefresh() {
+    refreshInterval = setInterval(fetchDashboardData, 30000);
+}
+
+function stopAutoRefresh() {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+    }
+}
+
+// ── Event Bindings ──
+document.querySelectorAll('.time-range button').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.time-range button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentRange = btn.dataset.range;
+        fetchDashboardData();
+    });
+});
+
+document.querySelectorAll('#skills-table thead th').forEach(th => {
+    th.addEventListener('click', () => {
+        const col = th.dataset.sort;
+        if (!col) return;
+        if (sortColumn === col) {
+            sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            sortColumn = col;
+            sortDirection = 'desc';
+        }
+        sortAndRenderSkills();
+    });
+});
+
+// ── Init ──
+fetchDashboardData();
+startAutoRefresh();
+</script>
+</body>
+</html>

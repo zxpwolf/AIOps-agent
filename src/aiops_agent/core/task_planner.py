@@ -22,9 +22,14 @@ _DECOMPOSE_SYSTEM_PROMPT = """你是一个 AIOps 任务分解助手。根据用�
 每个子任务需要包含:
 - task_id: 唯一标识（如 "t1", "t2"）
 - skill_name: 对应的技能名称（monitoring, troubleshooting, change_management 等）
-- action: 具体操作
-- parameters: 操作参数
+- action: 具体操作（必须与技能的 capabilities 列表中的值完全匹配）
+- parameters: 操作参数（字典格式，可以包含 instance_id, metric_name, namespace 等）
 - dependencies: 依赖的其他子任务 ID 列表
+
+重要：action 参数必须从对应技能的 capabilities 中选择，例如:
+- monitoring 技能: query_metrics, query_logs, analyze_metrics
+- troubleshooting 技能: ecs_health_check, network_diagnosis, rds_slow_query
+- change_management 技能: risk_assessment, rollback_plan
 
 请以 JSON 格式返回子任务列表。"""
 
@@ -89,14 +94,37 @@ class TaskPlanner:
 
         # 调用 LLM
         try:
+            logger.info(
+                "调用 LLM 进行任务分解: messages_count=%d, user_input=%s",
+                len(messages),
+                user_input[:100],
+            )
             response = await self._llm.chat(messages)
+            logger.debug("LLM 任务分解响应: %s", response.content[:500])
+            logger.info(
+                "LLM 响应收到: model=%s, tokens=%s, content_length=%d",
+                response.model,
+                response.usage,
+                len(response.content),
+            )
             sub_tasks = self._parse_subtasks(response.content, plan_id)
+            logger.info("解析子任务成功: count=%d", len(sub_tasks))
         except Exception as exc:
-            logger.error("LLM 任务分解失败: %s", exc)
+            logger.error(
+                "LLM 任务分解失败: error=%s, provider=%s",
+                exc,
+                self._llm._primary_name,
+                exc_info=True,
+            )
             sub_tasks = []
 
         # 验证技能映射
         validated_tasks = await self._validate_skill_mapping(sub_tasks)
+        logger.info(
+            "技能映射验证完成: original=%d, validated=%d",
+            len(sub_tasks),
+            len(validated_tasks),
+        )
 
         plan = TaskPlan(
             plan_id=plan_id,
@@ -183,7 +211,7 @@ class TaskPlanner:
             return sub_tasks
 
         except (json.JSONDecodeError, KeyError, TypeError) as exc:
-            logger.warning("LLM 输出解析失败: %s", exc)
+            logger.warning("LLM 输出解析失败: %s | 原始输出前200字符: %.200s", exc, llm_output)
             return []
 
     async def _validate_skill_mapping(
