@@ -177,8 +177,9 @@ async def create_agent(config: dict | None = None) -> AgentOrchestrator:
     llm_factory = LLMProviderFactory()
 
     # 注册内置 Demo Provider（无需 API Key，用于本地开发和演示）
-    # from aiops_agent.llm.demo import DemoProvider
-    # llm_factory.register("demo", DemoProvider())
+    from aiops_agent.llm.demo import DemoProvider
+
+    llm_factory.register("demo", DemoProvider())
 
     # 如果配置了真实 API Key，注册对应 Provider 并设为主 Provider
     llm_config = config.get("llm", {})
