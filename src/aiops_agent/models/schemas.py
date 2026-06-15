@@ -310,3 +310,38 @@ class ValidationResult(BaseModel):
 
     valid: bool
     errors: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# 9. Agent Loop — 终端状态 & 循环配置
+# ---------------------------------------------------------------------------
+
+
+class LoopTerminalReason(str, Enum):
+    """Agent loop 终止原因 — discriminated union 类型."""
+
+    COMPLETED = "completed"  # 正常完成
+    ABORTED = "aborted"  # 用户中止
+    BUDGET_EXHAUSTED = "budget_exhausted"  # Token 预算耗尽
+    MAX_TURNS = "max_turns"  # 达到最大循环轮数
+    UNRECOVERABLE_ERROR = "unrecoverable_error"  # 不可恢复错误
+
+
+class LoopTerminal(BaseModel):
+    """Agent loop 终端状态 — 编码循环结束的原因."""
+
+    reason: LoopTerminalReason
+    message: str = ""
+    data: Optional[dict] = None
+    turn_count: int = 0  # 循环执行了多少轮
+    total_tokens: Optional[int] = None
+    elapsed_ms: float = 0.0
+
+
+class LoopConfig(BaseModel):
+    """Agent loop 配置 — 控制循环行为."""
+
+    max_turns: int = 5  # 最大循环轮数（防止无限循环）
+    max_tokens: Optional[int] = None  # Token 预算上限
+    max_elapsed_ms: Optional[float] = None  # 时间上限（毫秒）
+    continue_threshold: float = 0.7  # LLM 判断“继续”的置信度阈值

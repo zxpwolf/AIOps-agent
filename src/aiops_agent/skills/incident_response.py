@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from aiops_agent.models.schemas import ValidationResult, WorkloadIdentity
+from aiops_agent.models.schemas import PermissionLevel, ValidationResult, WorkloadIdentity
 from aiops_agent.skills.base import SkillInstance
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,11 @@ class IncidentResponseSkill(SkillInstance):
     - run_playbook: 执行事件响应预案
     - escalate: 升级事件
     """
+
+    concurrency_safe = False  # 事件响应涉及状态变更，不应并发
+    permission_requirements = [PermissionLevel.LIMITED_WRITE]
+    description = "告警处理与事件响应编排，确认事件、执行预案、升级处理"
+    render_format = "markdown"
 
     def __init__(self) -> None:
         super().__init__()

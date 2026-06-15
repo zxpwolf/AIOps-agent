@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from aiops_agent.models.schemas import ValidationResult, WorkloadIdentity
+from aiops_agent.models.schemas import PermissionLevel, ValidationResult, WorkloadIdentity
 from aiops_agent.skills.base import SkillInstance
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,11 @@ class KnowledgeBaseSkill(SkillInstance):
     - match_case: 匹配历史故障案例
     - suggest_solution: 基于知识库推荐解决方案
     """
+
+    concurrency_safe = True
+    permission_requirements = [PermissionLevel.READ_ONLY]
+    description = "运维知识检索与故障案例匹配，基于知识库推荐解决方案"
+    render_format = "markdown"
 
     def __init__(self) -> None:
         super().__init__()

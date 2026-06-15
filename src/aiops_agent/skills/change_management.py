@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from aiops_agent.models.schemas import ValidationResult, WorkloadIdentity
+from aiops_agent.models.schemas import PermissionLevel, ValidationResult, WorkloadIdentity
 from aiops_agent.skills.base import SkillInstance
 
 logger = logging.getLogger(__name__)
@@ -22,6 +22,11 @@ class ChangeManagementSkill(SkillInstance):
     - change_risk_assessment: 变更风险评估
     - rollback_recommendation: 回滚方案推荐
     """
+
+    concurrency_safe = False  # 变更涉及风险评估和回滚方案，不应并发
+    permission_requirements = [PermissionLevel.LIMITED_WRITE]
+    description = "变更风险评估与回滚方案推荐，在执行变更前自动评估影响范围和风险等级"
+    render_format = "markdown"
 
     def __init__(self) -> None:
         super().__init__()

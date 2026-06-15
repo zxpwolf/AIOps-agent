@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from aiops_agent.models.schemas import ValidationResult, WorkloadIdentity
+from aiops_agent.models.schemas import PermissionLevel, ValidationResult, WorkloadIdentity
 from aiops_agent.skills.base import SkillInstance
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,11 @@ class MonitoringSkill(SkillInstance):
     - sls_log_query: SLS 日志查询
     - metric_analysis: 指标分析
     """
+
+    concurrency_safe = True
+    permission_requirements = [PermissionLevel.READ_ONLY]
+    description = "云监控指标查询与 SLS 日志分析，支持 CloudMonitor 多维度指标查询"
+    render_format = "json"
 
     def __init__(self) -> None:
         super().__init__()

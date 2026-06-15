@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from aiops_agent.models.schemas import ValidationResult, WorkloadIdentity
+from aiops_agent.models.schemas import PermissionLevel, ValidationResult, WorkloadIdentity
 from aiops_agent.skills.base import SkillInstance
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,11 @@ class CapacityPlanningSkill(SkillInstance):
     - analyze_utilization: 分析资源利用率
     - recommend_scaling: 推荐扩缩容方案
     """
+
+    concurrency_safe = True
+    permission_requirements = [PermissionLevel.READ_ONLY]
+    description = "资源容量分析与扩容建议，预测未来容量需求并推荐扩缩容方案"
+    render_format = "json"
 
     def __init__(self) -> None:
         super().__init__()

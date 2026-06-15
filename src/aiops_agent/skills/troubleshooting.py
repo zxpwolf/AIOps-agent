@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from aiops_agent.models.schemas import ValidationResult, WorkloadIdentity
+from aiops_agent.models.schemas import PermissionLevel, ValidationResult, WorkloadIdentity
 from aiops_agent.skills.base import SkillInstance
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,11 @@ class TroubleshootingSkill(SkillInstance):
     - network_diagnosis: 网络连通性诊断
     - rds_slow_query_analysis: RDS 慢查询分析
     """
+
+    concurrency_safe = False  # 排查涉及多步诊断，不应并发
+    permission_requirements = [PermissionLevel.READ_ONLY]
+    description = "ECS 健康检查、网络连通性诊断、RDS 慢查询分析，快速定位运维故障根因"
+    render_format = "markdown"
 
     def __init__(self) -> None:
         super().__init__()
